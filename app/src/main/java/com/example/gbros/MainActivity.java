@@ -9,6 +9,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.view.MotionEvent;
@@ -22,6 +24,9 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.sql.Time;
+import java.util.ArrayList;
+import java.util.Arrays;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -31,7 +36,7 @@ public class MainActivity extends AppCompatActivity {
     String bleScan="";
     boolean touched =false;
     boolean scanned =false;
-    char sendType = '0';
+    ArrayList<Character> sendTypes = new ArrayList<>();
     boolean connected = false;
     boolean newimg=false;
     Bitmap bmp;
@@ -40,12 +45,22 @@ public class MainActivity extends AppCompatActivity {
 
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        //Fullscreen
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
         setContentView(R.layout.activity_main);
         getSupportActionBar().hide();
+
+        //MAC address
+        WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        WifiInfo wInfo = wifiManager.getConnectionInfo();
+        final String macAddress = "abcdefghijkl";
+        System.out.println(wInfo.getMacAddress());
+
+        //Bluetooth
         BluetoothManager bluetoothManager =
                 (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         // recuperiamo un riferimento all'adapter Bluetooth
@@ -60,42 +75,48 @@ public class MainActivity extends AppCompatActivity {
         final ScanCallback callback=new ScanCallback() {
             @Override
             public void onScanResult(int callbackType, ScanResult result) {
-                    System.out.println(result.getDevice().getAddress());
+                    /*System.out.println(result.getDevice().getAddress());
                     System.out.println(result.getDevice().getName());
                     System.out.println(result.getRssi());
-                    System.out.println(result.getTxPower());
+                    System.out.println(result.getTxPower());*/
                     Integer rssi = result.getRssi();
-                    bleScan = result.getDevice().getAddress()+";"+rssi.toString();
+                    bleScan =rssi.toString()+"+"+result.getDevice().getName()+",";
                     scanned=true;
             }
         };
 
+        //Image
         final ImageView img= findViewById(R.id.imageView);
         View v =findViewById(R.id.view);
+
+        //Touch
         v.setOnTouchListener(handleTouch);
+
+        // Threads
         final Thread sendThread= new Thread() {
             @Override
             public void run(){
                 while(connected){
                     try {
-                        if(sendType=='b' && scanned) {
-                            String s =bleScan;
-                            byte[] toSend = s.getBytes(StandardCharsets.UTF_8);
-                            byte[] sendLen = ByteBuffer.allocate(4).putInt(toSend.length).array();
-                            so.getOutputStream().write(sendLen);
-                            so.getOutputStream().flush();
-                            so.getOutputStream().write(toSend);
-                            so.getOutputStream().flush();
+                        String sendString="";
+                        if(sendTypes.contains('b') && scanned) {
+                            //sendString += 'b' + bleScan + '\n';
                             scanned=false;
-                        } if(sendType=='t' && touched) {
-                            String s = sendType + touchX.toString() + ";" + touchY.toString();
-                            byte[] toSend = s.getBytes(StandardCharsets.UTF_8);
-                            byte[] sendLen = ByteBuffer.allocate(4).putInt(toSend.length).array();
-                            so.getOutputStream().write(sendLen);
-                            so.getOutputStream().flush();
+                            //System.out.println("Sending BLE");
+                        } if(sendTypes.contains('t') && touched) {
+                            sendString += 't' + touchX.toString() + "," + touchY.toString()+'\n';
+                            //System.out.println(sendString);
+                            touched=false;
+                            //System.out.println("Sending touch");
+                        }
+
+                        if(sendString.length()>0){
+                            byte[] toSend = sendString.getBytes(StandardCharsets.UTF_8);
+                            //byte[] sendLen = ByteBuffer.allocate(4).putInt(toSend.length).array();
+                            //so.getOutputStream().write(sendLen);
+                            //so.getOutputStream().flush();
                             so.getOutputStream().write(toSend);
                             so.getOutputStream().flush();
-                            touched=false;
                         }
                     } catch (SocketException e) {
                         connected = false;
@@ -112,48 +133,100 @@ public class MainActivity extends AppCompatActivity {
                 while (true) {
                     while (!connected) {
                         try {
-                            so = new Socket("192.168.0.104", 10000);
+                            so = new Socket("lucab.ddns.net", 50500);
+                            byte[] toSend = macAddress.getBytes(StandardCharsets.UTF_8);
+                            so.getOutputStream().write(toSend);
+                            so.getOutputStream().flush();
                             connected = true;
-                        } catch (IOException e) { }
+                        } catch (IOException e) { e.printStackTrace(); }
                     }
                         //BufferedReader rd= new BufferedReader(new InputStreamReader(so.getInputStream()));
                         //BufferedWriter wr= new BufferedWriter(new OutputStreamWriter(so.getOutputStream()));
                         /*Bitmap b= BitmapFactory.decodeStream(so.getInputStream());
                         if (b!=null)
                             System.out.println(b.getPixel(1, 3));*/
-                    sendType = '0';
+                    sendTypes.clear();
+                    if(sendThread.isAlive()) {
+                        connected = false;
+                        try {
+                            sendThread.join();
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                        connected = true;
+                    }
                     sendThread.start();
                     byte[] stream = null;
+                    String params=null;
+                    long lastTime=0;
                     while (connected) {
                         try {
                             byte[] l = new byte[4];
                             so.getInputStream().read(l);
                             int len = convertByteArrayToInt2(l);
+                            //System.out.print("LEN: ");
+                            //System.out.println(len);
                             byte[] b= new byte[1];
+                            so.getInputStream().read(b);
                             char recvType = (char) b[0];
-                            if(len-1>0){
-                                stream = new byte[len-1];
-                                so.getInputStream().read(stream);
+
+                            int recv_len = len - 1;
+                            if(recv_len>0){
+
+                                stream = new byte[recv_len];
+
+                                int received_len = 0;
+                                int old_received_len = 0;
+                                byte[] chunk = null;
+
+                                while(recv_len != received_len) {
+                                    chunk = new byte[recv_len - received_len];
+                                    old_received_len = received_len;
+                                    received_len += so.getInputStream().read(chunk);
+                                    System.arraycopy(chunk, 0, stream, old_received_len, chunk.length);
+                                    //System.out.print("RECV LEN: ");
+                                    //System.out.println(received_len);
+                                }
+
                             }
-                            if(recvType=='b'){
-                                if(sendType=='b'){
-                                    sendType='0';
+                            if(recvType=='l') {
+                                byte[] toSend = "l".getBytes(StandardCharsets.UTF_8);
+                                so.getOutputStream().write(toSend);
+                                so.getOutputStream().write(stream);
+                                toSend = "\n".getBytes(StandardCharsets.UTF_8);
+                                so.getOutputStream().write(toSend);
+                                so.getOutputStream().flush();
+                                sendTypes.add((Character) 't');
+                            } else if(recvType=='b'){
+                                params=new String(stream, StandardCharsets.UTF_8);
+                                if(params.contains("1")){
+                                    //System.out.println("starting BLE scan");
+                                    sendTypes.remove((Character) 't');
                                     scanner.stopScan(callback);
-                                } else {
+                                } else if (params.contains("0")){
+                                    //System.out.println("stopping BLE scan");
                                     scanned = false;
                                     scanner.startScan(callback);
-                                    sendType = 'b';
+                                    sendTypes.add((Character) 'b');
                                 }
                             } else if(recvType=='t'){
-                                if(sendType=='t'){
-                                    sendType='0';
-                                } else {
+                                params=new String(stream, StandardCharsets.UTF_8);
+                                if(params.contains("1")){
+                                    //System.out.println("starting touch");
+                                    sendTypes.remove((Character) 't');
+                                } else if (params.contains("0")) {
+                                    //System.out.println("stopping touch");
                                     touched = false;
-                                    sendType = 't';
+                                    sendTypes.add((Character)'t');
                                 }
-                            } else if(recvType=='i'){
-                                bmp = BitmapFactory.decodeByteArray(stream, 0, stream.length);
-                                newimg = true;
+                            } else if(recvType=='d' || recvType=='v'){
+                                if(stream.length>1) {
+                                    System.out.println(System.currentTimeMillis() - lastTime);
+                                    lastTime = System.currentTimeMillis();
+                                    System.out.println("Received frame");
+                                    bmp = BitmapFactory.decodeByteArray(stream, 0, stream.length);
+                                    newimg = true;
+                                }
                             }
                             //System.out.println(stream[0]);
                             //Bitmap bmp=BitmapFactory.decodeByteArray(stream,0,stream.length);
@@ -178,6 +251,7 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         }
 
+        //Display image runnable
         final Handler imgHandler=new Handler();
         imgHandler.postDelayed(new Runnable() {
             @Override
@@ -202,6 +276,7 @@ public class MainActivity extends AppCompatActivity {
                 ((bytes[3] & 0xFF) << 0);
     }
 
+    //Touchscreen listener
     private View.OnTouchListener handleTouch = new View.OnTouchListener() {
 
         @Override
