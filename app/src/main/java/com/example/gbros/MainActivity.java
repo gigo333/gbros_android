@@ -9,8 +9,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.net.wifi.WifiInfo;
-import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.view.MotionEvent;
@@ -20,13 +18,13 @@ import android.view.WindowManager;
 import android.widget.ImageView;
 
 import java.io.IOException;
+import java.net.NetworkInterface;
 import java.net.Socket;
 import java.net.SocketException;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.sql.Time;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -54,12 +52,6 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         getSupportActionBar().hide();
 
-        //MAC address
-        WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        WifiInfo wInfo = wifiManager.getConnectionInfo();
-        final String macAddress = "abcdefghijkl";
-        System.out.println(wInfo.getMacAddress());
-
         //Bluetooth
         BluetoothManager bluetoothManager =
                 (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
@@ -85,6 +77,9 @@ public class MainActivity extends AppCompatActivity {
             }
         };
 
+        //MAC address
+        final String macAddress = getMacAddr();
+
         //Image
         final ImageView img= findViewById(R.id.imageView);
         View v =findViewById(R.id.view);
@@ -99,11 +94,12 @@ public class MainActivity extends AppCompatActivity {
                 while(connected){
                     try {
                         String sendString="";
+
                         if(sendTypes.contains('b') && scanned) {
                             //sendString += 'b' + bleScan + '\n';
                             scanned=false;
                             //System.out.println("Sending BLE");
-                        } if(sendTypes.contains('t') && touched) {
+                        } else if(sendTypes.contains('t') && touched) {
                             sendString += 't' + touchX.toString() + "," + touchY.toString()+'\n';
                             //System.out.println(sendString);
                             touched=false;
@@ -133,7 +129,7 @@ public class MainActivity extends AppCompatActivity {
                 while (true) {
                     while (!connected) {
                         try {
-                            so = new Socket("lucab.ddns.net", 50500);
+                            so = new Socket("93.50.231.147", 10000);
                             byte[] toSend = macAddress.getBytes(StandardCharsets.UTF_8);
                             so.getOutputStream().write(toSend);
                             so.getOutputStream().flush();
@@ -196,7 +192,8 @@ public class MainActivity extends AppCompatActivity {
                                 toSend = "\n".getBytes(StandardCharsets.UTF_8);
                                 so.getOutputStream().write(toSend);
                                 so.getOutputStream().flush();
-                                sendTypes.add((Character) 't');
+                                if(!sendTypes.contains('t'))
+                                    sendTypes.add((Character) 't');
                             } else if(recvType=='b'){
                                 params=new String(stream, StandardCharsets.UTF_8);
                                 if(params.contains("1")){
@@ -207,7 +204,8 @@ public class MainActivity extends AppCompatActivity {
                                     //System.out.println("stopping BLE scan");
                                     scanned = false;
                                     scanner.startScan(callback);
-                                    sendTypes.add((Character) 'b');
+                                    if(!sendTypes.contains('b'))
+                                        sendTypes.add((Character) 'b');
                                 }
                             } else if(recvType=='t'){
                                 params=new String(stream, StandardCharsets.UTF_8);
@@ -217,7 +215,8 @@ public class MainActivity extends AppCompatActivity {
                                 } else if (params.contains("0")) {
                                     //System.out.println("stopping touch");
                                     touched = false;
-                                    sendTypes.add((Character)'t');
+                                    if(!sendTypes.contains('t'))
+                                        sendTypes.add((Character)'t');
                                 }
                             } else if(recvType=='d' || recvType=='v'){
                                 if(stream.length>1) {
@@ -274,6 +273,39 @@ public class MainActivity extends AppCompatActivity {
                 ((bytes[1] & 0xFF) << 16) |
                 ((bytes[2] & 0xFF) << 8) |
                 ((bytes[3] & 0xFF) << 0);
+    }
+
+    // Get device's WIFI MAC adress
+    public static String getMacAddr() {
+        try {
+            List<NetworkInterface> all = Collections.list(NetworkInterface.getNetworkInterfaces());
+            for (NetworkInterface nif : all) {
+                if (!nif.getName().equalsIgnoreCase("wlan0")) continue;
+
+                byte[] macBytes = nif.getHardwareAddress();
+                if (macBytes == null) {
+                    return "";
+                }
+
+                StringBuilder res1 = new StringBuilder();
+                for (byte b : macBytes) {
+                    res1.append(Integer.toHexString(b & 0xFF) + ":");
+                }
+
+                if (res1.length() > 0) {
+                    res1.deleteCharAt(res1.length() - 1);
+                }
+                String[] mac=res1.toString().split(":");
+                String adress="";
+                for(String s : mac){
+                    adress+=s;
+                }
+                return adress;
+            }
+        } catch (Exception ex) {
+            //handle exception
+        }
+        return "";
     }
 
     //Touchscreen listener
