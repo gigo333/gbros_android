@@ -289,18 +289,10 @@ public class MainActivity extends AppCompatActivity {
 
                 StringBuilder res1 = new StringBuilder();
                 for (byte b : macBytes) {
-                    res1.append(Integer.toHexString(b & 0xFF) + ":");
+                    res1.append(Integer.toHexString(b & 0xFF));
                 }
 
-                if (res1.length() > 0) {
-                    res1.deleteCharAt(res1.length() - 1);
-                }
-                String[] mac=res1.toString().split(":");
-                String adress="";
-                for(String s : mac){
-                    adress+=s;
-                }
-                return adress;
+                return res1.toString();
             }
         } catch (Exception ex) {
             //handle exception
